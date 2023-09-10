@@ -1,0 +1,611 @@
+---
+title: "Практикум Осипов"
+output: html_notebook
+---
+
+```{r}
+library(reshape2)
+library(corrplot)
+library(outliers)
+library(MASS)
+library(ggplot2)
+library(boot)
+library(nortest)
+set.seed(42)
+```
+
+Загрузка данных
+
+Данные: Heart Attack dataset - 13 медицинских признаков и колонка о наличии сердечного приступа
+
+Источник: https://www.kaggle.com/datasets/pritsheta/heart-attack
+
+```{r}
+df <- read.csv("Heart_Attack.csv",sep=",",header = TRUE)
+```
+
+```{r}
+df
+```
+
+```{r}
+summary(df)
+```
+
+
+1. Реализовать аппроксимацию распределений данных с помощью ядерных оценок.
+
+Распределение количественных признаков
+```{r}
+for (i in c(1, 4, 5, 8, 10)) {
+  plot(main=names(df)[i], density(df[, i]), xlab=names(df)[i])
+  axis(1, tck=1, lty=2)
+  axis(2, tck=1, lty=2)
+}
+```
+Построили графики ядерных оценок для количесвтвенных признаков. Для качесвенных признаков нет смысла строить, так как они распределены по группам.
+
+
+2. Реализовать анализ данных с помощью cdplot, dotchart, boxplot и stripchart.
+
+Построим графики для признаков trestbps и cp, посмотрим, как распределёны значения trestbps в зависимости от значений cp.
+
+cdplot
+```{r}
+cdplot(as.factor(cp) ~ trestbps, data=df)
+```
+cdpolt демонстрирует разное распределение признака trestbps в зависимости от значения переменной cp.
+
+boxplot
+```{r}
+boxplot(trestbps ~ cp, data=df)
+```
+boxplot показывают неоднородность в распределении признаков.
+
+dotchart
+```{r}
+dotchart(df$trestbps[1:50])
+```
+dotchart демонстрируют неоднородность в распределении признаков.
+
+stripchart
+```{r}
+stripchart(trestbps ~ cp, data=df)
+```
+stripchart демонстрируют неоднородность в распределении признаков.
+
+
+3. Проверить, являются ли наблюдения выбросами с точки зрения формальных статистических критериев Граббса и Q-теста Диксона. Визуализировать результаты.
+
+Создадим массив с двумя выбросами и применим к нему тесты Граббса и Диксона.
+```{r}
+chol_ = sort(df$chol)
+chol <- c(chol_[1], chol_[140:160], chol_[300])
+```
+
+```{r}
+boxplot(chol, xlab='chol', outline=T, horizontal=T)
+```
+
+Критерий Граббса
+```{r}
+grubbs.test(chol, type=11)
+```
+Было выявлено два значения выбросов (минимальное и максимально). Они и были удалены из выборки.
+
+Критерий Диксона
+```{r}
+dixon.test(chol, type=0, opposite=FALSE, two.sided=TRUE)
+```
+Были убраны наибольшее и наименьшее значения. Благодаря параметру two.sided это было сделано за один прогон в отличие от питона.
+
+
+4. Воспользоваться инструментами для заполнения пропусков в данных. Пропуски внести вручную и сравнить результаты заполнения с истинными значениями.
+
+Сделаем 10% пропусков в данных и заполним их двумя способами.
+```{r}
+original <- df$trestbps
+miss <- original
+missing_indexes = sample(1:length(df), round(length(df) * 0.1))
+```
+
+Заполним средним
+```{r}
+miss[missing_indexes] <- NA
+miss[missing_indexes] <- mean(miss, na.rm = T)
+ 
+print('Metrics in mean case:')
+actuals <- original[missing_indexes]
+predicteds <- miss[missing_indexes]
+mean(c((actuals - predicteds)**2))**0.5
+```
+
+Заполним медианой
+```{r}
+miss[missing_indexes] <- NA
+miss[missing_indexes] <- median(miss, na.rm = T)
+ 
+print('Metrics in median case:')
+actuals <- original[missing_indexes]
+predicteds <- miss[missing_indexes]
+mean(c((actuals - predicteds)**2))**0.5
+```
+
+В целом, в обоих методах получили схожие значение ошибки заполнения данных, но при заполнении средним чуть лучше.
+
+
+5. Сгенерировать данные из нормального распределения с различными параметрами и провести анализ с помощью графиков эмпирических функций распределений, квантилей, метода огибающих, а также стандартных процедур проверки гипотез о нормальности (критерии Колмогорова-Смирнова, ШапироУилка, Андерсона-Дарлинга, Крамера фон Мизеса, Колмогорова-Смирнова в модификации Лиллиефорса и Шапиро-Франсия). Рассмотреть выборки малого и умеренного объемов.
+
+Функции для исследования
+
+Эмпирические функции распределения
+```{r}
+f_cdf <- function(data, title) {
+  data_ <- fitdistr(data, densfun='normal')
+  par(mfrow=c(1, 1), pty='s')
+  plot(data, pnorm(data, mean=data_$estimate[1], sd=data_$estimate[2]),
+       type='l', col='blue', lwd=2, xlab=title, ylab='')
+  plot(ecdf(data), add=T, col='black')
+}
+```
+
+Метод огибающих
+```{r}
+f_env <- function(data, title) {
+  par(mfrow=c(1, 1), pty='s')
+  z <- (data - mean(data)) / sqrt(var(data))  #Стандартизация выборки
+  x.qq <- qqnorm(z, plot.it=FALSE)
+  x.qq <- lapply(x.qq, sort)
+  plot(x.qq, ylim = c(-5, 5), ylab="Z-статистики выборки", xlab=title, col='red')
+  
+  x.gen <- function(dat, mle) rnorm(length(dat))
+  x.qqboot <- boot(z, sort, R=999, 
+                   sim='parametric', ran.gen=x.gen)
+  sapply(1:999, function(i) lines(x.qq$x, x.qqboot$t[i,],
+                                 type='l', col='grey'))
+  points(x.qq, pch=20)
+  lines(c(-3, 3), c(-3, 3), col='red', lwd=2)
+  
+  x.env <- envelope(x.qqboot, level=0.9)
+  lines(x.qq$x,x.env$point[1, ], lty = 4)
+  lines(x.qq$x,x.env$point[2, ], lty = 4)
+  lines(x.qq$x,x.env$overall[1, ], lty = 1)
+  lines(x.qq$x,x.env$overall[2, ], lty = 1)
+}
+```
+
+Генерируем
+N(0, 1) n = 50
+N(0, 1) n = 5000
+N(7, 3) n = 50
+N(7, 3) n = 5000
+```{r}
+n = 50
+data_50 <- matrix(c(sort(rnorm(n, mean = 0, sd = 1)),
+                 sort(rnorm(n, mean = 7, sd = 3))),
+               nrow = 2, ncol = n, byrow = TRUE)
+
+n = 5000
+data_5000 <- matrix(c(sort(rnorm(n, mean = 0, sd = 1)),
+                    sort(rnorm(n, mean = 7, sd = 3))),
+                  nrow = 2, ncol = n, byrow = TRUE)
+```
+
+Эмпирические функции распределения
+
+N(0, 1)
+```{r}
+f_cdf(data_50[1,], 'N(0, 1) n=50')
+f_cdf(data_5000[1,], 'N(0, 1) n=5000')
+```
+
+N(7, 3)
+```{r}
+f_cdf(data_50[2,], 'N(7, 3) n=50')
+f_cdf(data_5000[2,], 'N(7, 3) n=5000')
+```
+
+Функции распределения для разных распределений повторяют друг друга с точностью до масштаба. При увеличении количества объектов функция распрделения становиться более гладкой.
+
+Квантили
+
+N(0, 1)
+```{r}
+par(mfrow=c(1, 1), pty='s')
+qqnorm(data_50[1,])
+qqline(data_50[1,])
+
+par(mfrow=c(1, 1), pty='s')
+qqnorm(data_5000[1,])
+qqline(data_5000[1,])
+```
+
+N(7, 3)
+```{r}
+par(mfrow=c(1, 1), pty='s')
+qqnorm(data_50[2,])
+qqline(data_50[2,])
+
+par(mfrow=c(1, 1), pty='s')
+qqnorm(data_5000[2,])
+qqline(data_5000[2,])
+```
+Подобно графикам функций распределения: при увеличении числа элементов выборки график становиться более гладким.
+
+Метод огибающих
+
+N(0, 1)
+```{r}
+f_env(data_50[1,], 'Квантили нормального распределения N(0, 1), n = 50')
+f_env(data_5000[1,], 'Квантили нормального распределения N(0, 1), n = 5000')
+```
+
+N(7, 3)
+```{r}
+f_env(data_50[2,], 'Квантили нормального распределения N(7, 3), n = 50')
+f_env(data_5000[2,], 'Квантили нормального распределения N(7, 3), n = 5000')
+```
+По данному тесту выборка удовлетворяет нормальному распределению.
+
+Процедуры проверки гипотез о нормальности
+
+N(0, 1)
+
+Критерий Колмогорова-Смирнова
+```{r}
+data_50_ <- fitdistr(data_50[1,], densfun='normal')
+ks.test(data_50[1,], pnorm, mean=data_50_$estimate[1], sd=data_50_$estimate[2])
+
+data_5000_ <- fitdistr(data_5000[1,], densfun='normal')
+ks.test(data_5000[1,], pnorm, mean=data_5000_$estimate[1], sd=data_5000_$estimate[2])
+```
+
+Критерий Шапиров-Уилка
+```{r}
+shapiro.test(data_50[1,])
+shapiro.test(data_5000[1,])
+```
+
+Критерий Андерсона-Дарлинга
+```{r}
+ad.test(data_50[1,])
+ad.test(data_5000[1,])
+```
+
+Критерий Крамера фон Мизеса
+```{r}
+cvm.test(data_50[1,])
+cvm.test(data_5000[1,])
+```
+
+Критерий Колмогорова-Смирнова в модификации Лиллиефорса
+```{r}
+lillie.test(data_50[1,])
+lillie.test(data_5000[1,])
+```
+
+Критерий Шапиро-Франсия
+```{r}
+sf.test(data_50[1,])
+sf.test(data_5000[1,])
+```
+Для всех критериев значение p-value больше критического значение 0.05 у нормального рапределения N(0, 1), селедовательно принимаем гипотезу о нормальности данных.
+
+
+N(7, 3)
+
+Критерий Колмогорова-Смирнова
+```{r}
+ks.test(data_50[2, ],pnorm, mean = data_mle_50_2$estimate[1], sd = data_mle_50_2$estimate[2])
+ks.test(data_5000[2, ],pnorm, mean = data_mle_5000_2$estimate[1], sd = data_mle_5000_2$estimate[2])
+```
+
+Критерий Шапиров-Уилка
+```{r}
+shapiro.test(data_50[2,])
+shapiro.test(data_5000[2,])
+```
+
+Критерий Андерсона-Дарлинга
+```{r}
+ad.test(data_50[2,])
+ad.test(data_5000[2,])
+```
+
+Критерий Крамера фон Мизеса
+```{r}
+cvm.test(data_50[2,])
+cvm.test(data_5000[2,])
+```
+
+Критерий Колмогорова-Смирнова в модификации Лиллиефорса
+```{r}
+lillie.test(data_50[2,])
+lillie.test(data_5000[2,])
+```
+
+Критерий Шапиро-Франсия
+```{r}
+sf.test(data_50[2,])
+sf.test(data_5000[2,])
+```
+Для всех критериев значение p-value больше критического значение 0.05 у нормального рапределения N(7, 3), селедовательно принимаем гипотезу о нормальности данных.
+
+
+6. Продемонстрировать пример анализа данных с помощью графиков квантилей, метода огибающих, а также стандартных процедур проверки гипотез о нормальности. Рассмотреть выборки малого и умеренного объемов.
+
+Будем рассматривать данные из колонки trestbps, так как ее график наиболее схож с графиком нормального распределения.
+Возьмём выборку из 50 элементов и все данные.
+```{r}
+trestbps_50 <- df$trestbps[1:50]
+trestbps <- df$trestbps
+```
+
+Эмпирическая функция распределения
+```{r}
+f_cdf(trestbps_50, 'small')
+f_cdf(trestbps, 'big')
+```
+
+Квантили
+```{r}
+par(mfrow=c(1, 1), pty='s')
+
+qqnorm(trestbps_50)
+qqline(trestbps_50)
+
+qqnorm(trestbps)
+qqline(trestbps)
+```
+
+Метод огибающих
+```{r}
+f_env(trestbps_50, 'small')
+f_env(trestbps, 'big')
+```
+
+Процедуры проверки гипотез о нормальности
+
+Критерий Колмогорова-Смирнова
+```{r}
+trestbps_50_ <- fitdistr(trestbps_50, densfun='normal')
+ks.test(unique(trestbps_50), pnorm, mean=trestbps_50_$estimate[1], sd=trestbps_50_$estimate[2])
+
+trestbps_ <- fitdistr(trestbps, densfun='normal')
+ks.test(unique(trestbps), pnorm, mean=trestbps_$estimate[1], sd=trestbps_$estimate[2])
+```
+
+Критерий Шапиров-Уилка
+```{r}
+shapiro.test(trestbps_50)
+shapiro.test(trestbps)
+```
+
+Критерий Андерсона-Дарлинга
+```{r}
+ad.test(trestbps_50)
+ad.test(trestbps)
+```
+
+Критерий Крамера фон Мизеса
+```{r}
+cvm.test(trestbps_50)
+cvm.test(trestbps)
+```
+
+Критерий Колмогорова-Смирнова в модификации Лиллиефорса
+```{r}
+lillie.test(trestbps_50)
+lillie.test(trestbps)
+```
+
+Критерий Шапиро-Франсия
+```{r}
+sf.test(trestbps_50)
+sf.test(trestbps)
+```
+
+Все результаты для малой выборки подтверждают гипотезу о нормальности распределения. Все тесты для умеренной выборки указывают на то, чтобы отвергнуть гипотезу. Итого, результаты не дают нам однозначно сделать вывод о том, что данные имеют нормальное распределение.
+
+
+7. Продемонстрировать применение для проверки различных гипотез и различных доверительных уровней (0.9, 0.95, 0.99) следующих критериев:
+a. Стьюдента, включая односторонние варианты, когда проверяемая нулевая гипотеза заключается в том, что одно из сравниваемых средних значений больше (или меньше) другого. Реализовать оценку мощности критериев при заданном объеме выборки или определения объема выборки для достижения заданной мощности;
+b. Уилкоксона-Манна-Уитни (ранговые);
+c. Фишера, Левене, Бартлетта, Флигнера-Килина (проверка гипотез об однородности дисперсий).
+
+```{r}
+trestbps <- df$trestbps
+thalach <- df$thalach
+```
+
+Тест Стьюдента
+Будем рассматривать данные по колонкам trestbps и thalach, так как у них более менее схожие параметры.
+```{r}
+for (a in c(0.9, 0.95, 0.99)){
+  print(t.test(trestbps, thalach, conf.level=a, alternative='t'))
+  print(t.test(trestbps, thalach, conf.level=a, alternative='l'))
+  print(t.test(trestbps, thalach, conf.level=a, alternative='g'))
+}
+```
+Принимаем гипотезу о том, что среднее параметра trestbps меньше среднего параметра thalach.
+
+Тест Уилкоксона-Манна-Уитни
+Будем рассматривать данные по колонкам trestbps и thalach, так как у них более менее схожие параметры
+```{r}
+trestbps_h <- unique(df$trestbps)[1:24]
+trestbps_t <- unique(df$trestbps)[25:49]
+```
+
+```{r}
+for (a in c(0.9, 0.95, 0.99)){
+  print(wilcox.test(trestbps_h, trestbps_t, conf.level=a, alternative='t'))
+  print(wilcox.test(trestbps_h, trestbps_t, conf.level=a, alternative='l'))
+  print(wilcox.test(trestbps_h, trestbps_t, conf.level=a, alternative='g'))
+}
+```
+В различных выборках из признака trestbps данные схожи между собой по среднему. 
+
+Тест Фишера, Левене, Бартлетта, Флигнера-Килина
+Рассмотрим признаки trestbps и thalach.
+```{r}
+trestbps_h <- unique(df$trestbps)[1:30]
+thalach_h <- unique(df$thalach)[1:30]
+data <- data.frame(xy=c(trestbps_h, thalach_h), det=c(rep("x", length(trestbps_h)), rep("y", length(thalach_h))))
+```
+
+```{r}
+print(var.test(xy ~ det, data=data))
+print(leveneTest(xy ~ det, data=data))
+print(fligner.test(xy ~ det, data=data))
+print(bartlett.test(xy ~ det, data=data))
+```
+Признаки trestbps и thalach имеют одно и то же распределение.
+
+
+8. Исследовать корреляционные взаимосвязи в данных с помощью коэффициентов корреляции Пирсона, Спирмена и Кендалла.
+
+корреляции Пирсона
+```{r}
+round(cor(df, method = 'pearson'), 2)
+```
+
+корреляции Спирмена
+```{r}
+round(cor(df, method = 'spearman'), 2)
+```
+
+корреляции Кендалла
+```{r}
+round(cor(df, method = 'kendall'), 2)
+```
+
+Признаки очень слабо коррелируют между собой. Самая высокая по модулю корреляция между признаками slope и oldpeak.
+
+9. Продемонстрировать использование методов хи-квадрат, точного теста Фишера, теста МакНемара, Кохрана-Мантеля-Хензеля.
+
+Метод хи-квадрат
+Проверим независимость колонок sex (пол) и target (наличие болезни).
+```{r}
+chisq.test(table(df$sex, df$target))
+```
+Отвергаем нулевую гипотезу о независимости пола и наличия болезни.
+
+Точный тест Фишера
+Проверим независимость колонок sex (пол) и target (наличие болезни).
+```{r}
+fisher.test(table(df$sex, df$target))
+```
+Отвергаем нулевую гипотезу о независимости пола и наличия болезни.
+
+Тест МакНемара
+Проверим независимость колонок sex (пол) и target (наличие болезни).
+```{r}
+mcnemar.test(table(df$sex, df$target))
+```
+Отвергаем нулевую гипотезу о независимости пола и наличия болезни.
+
+Тест Кохрана-Мантеля-Хензеля
+Проверим независимость колонок sex (пол), target (наличие болезни) и exang (стенокардии, вызванной физической нагрузкой).
+```{r}
+data = table(df$target, df$sex, df$exang)
+
+mantelhaen.test(data)
+```
+Следовательно отвергаем нулевую гипотезу о независимости пола, наличии болезни и стенокардии, вызванной физической нагрузкой.
+
+
+10. Проверить наличие мультиколлинеарности в данных с помощью
+корреляционной матрицы и фактора инфляции дисперсии.
+
+Корреляционная матрица
+```{r}
+get_upper_tri<-function(cormat){
+  cormat[upper.tri(cormat)] <- NA
+  return(cormat)
+}
+
+cormat <- round(cor(df, method = 'p'), 2)
+upper_tri <- get_upper_tri(cormat)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+ggplot(data = melted_cormat, aes(x=Var2, y=Var1, fill=value)) + geom_tile() +
+  geom_text(aes(Var2, Var1, label = value), size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red", limit = c(-1,1), name="correlation") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank())
+```
+Признаки очень слабо коррелируют между собой. Самая высокая по модулю корреляция между признаками slope и oldpeak.
+
+Фактор инфляции дисперсии
+
+На моей ЭВМ не запускалась функция vif(), поэтому исследование из онлайн интерпретатора с другими данными.
+
+![vif](task10_vif.png)
+Значения между единицей и пятёркой, что указывает на умеренную корреляцию переменной mpg и переменными disp, hp, wt, drat.
+
+
+11. Исследовать зависимости в данных с помощью дисперсионного анализа.
+
+```{r}
+fit <- aov(target ~ ., data=df)
+summary(fit)
+```
+Отвергаем нулевую гипотезу об отсутствии влияния признака на наличие болезни для age, sex, cp, trestbps, thalach, exang, oldpeak, ca, thal;
+Принимаем нулевую гипотезу для chol, fbs, restecg, slope.
+Для python получены другие результаты для chol, fbs, slope.
+
+12. Подогнать регрессионные модели (в том числе, нелинейные) к
+данным, а также оценить качество подобной аппроксимации.
+
+Попробуем предугадать значение trestbps (давление в состоянии покоя) от age (возраста).
+
+автоподбор модели
+```{r}
+ggplot(df, aes(x = age, y = trestbps)) + geom_point() +
+  stat_smooth(method = "auto") + 
+  xlab("age") + 
+  ylab("trestbps")
+```
+
+линейная модель
+```{r}
+ggplot(df, aes(x = age, y = trestbps)) + geom_point() +
+  stat_smooth(method = "lm") + 
+  xlab("age") + 
+  ylab("trestbps")
+```
+
+```{r}
+y <- df$trestbps
+x <- df$age
+
+M_reg <- lm(y ~ x)
+summary(M_reg)
+anova(M_reg)
+```
+
+нелинейная модель
+```{r}
+ggplot(df, aes(x = age, y = trestbps)) + geom_point() +
+  stat_smooth(method = "lm", formula = y~poly(x,3)) +
+  xlab("age") + 
+  ylab("trestbps")
+```
+
+```{r}
+y <- df$trestbps
+x <- df$age
+
+M_reg2 <- lm(y ~ poly(x,4))
+summary(M_reg2)
+anova(M_reg2)
+```
+
+Построили три модели, получилось не очень хорошо (судя по точкам на графике и не могло получится хорошо). Наверно, влияет, что в выборке люди как с болезнью, так и без.
+
+Вывод
+-Узнал о 12 статистических методах
+-Научился их применять с помощью языков Python и R
+-На R удобнее реализованы данные методы
+-Некоторые методы дают разные результаты в разных языках на одних и тех же данных
+-Интересно и полезно провёл время

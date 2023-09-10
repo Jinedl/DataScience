@@ -1,0 +1,103 @@
+---
+title: "Task 7"
+author: "Osipov Denis"
+date: "2023-04-12"
+output: html_document
+---
+
+```{r}
+library(reticulate)
+path_to_python <- "sem6/bin/python"
+use_python(path_to_python)
+```
+
+## Загрузка данных
+
+Вариант 5 - BXP, C, CAG, CAH, CARR, CAT, CB, CBOE, CBRE, CCI
+Получим данные цен закрытия своего варианта
+```{python}
+%matplotlib inline
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import time
+```
+```{python}
+def get_One_Asset(company, start_day, end_day):
+    df = pd.DataFrame()
+    data = yf.Ticker(company).history(start=start_day, end=end_day) #period="1y"
+    df.index = data.index
+    df[company] = (data.Close-data.Close.mean()) / data.Close.std()
+    return df
+```
+```{python}
+start_day = '2021-01-01'
+end_day = '2022-01-01'
+assetList = ['BXP', 'C', 'CAG', 'CAH', 'CARR', 'CAT', 'CB', 'CBOE', 'CBRE', 'CCI']
+```
+```{python}
+RatesData = get_One_Asset(assetList[0], start_day, end_day)
+for i in range(1, len(assetList)):
+    asset = get_One_Asset(assetList[i], start_day, end_day)
+    RatesData = pd.concat([data, asset], axis=1)
+RatesData
+```
+
+```{python}
+from sklearn.decomposition import PCA
+from sklearn import linear_model
+
+pca = PCA(svd_solver='full')
+pca.fit(RatesData)
+print('Explained variance by factors:\n', pca.explained_variance_.round(1))
+```
+
+```{python}
+
+```
+
+
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+```{python}
+```
+

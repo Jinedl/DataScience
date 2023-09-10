@@ -1,0 +1,192 @@
+---
+title: "Task 6"
+author: "Osipov Denis"
+date: "2023-04-10"
+output: html_document
+---
+
+# Метод главных компонент и shift & twist & butterfly
+
+Вариант 15 (5)
+
+```{r, message=FALSE}
+library(xts)
+library(FinAna)
+```
+
+## Подготовка данных
+```{r}
+rates <- read.csv("Rates.csv", header=TRUE)
+head(rates)
+```
+```{r}
+dates <- as.Date(rates[,1], '%m/%d/%y')
+rates.xts <- as.xts(rates[,2:12], order.by=dates)
+head(rates.xts)
+```
+```{r}
+ndays <- dim(rates)[1]
+lastdate <- as.Date(rates[ndays, 1], '%m/%d/%y')
+```
+```{r}
+rates <- rates[, 2:12]
+```
+
+
+## График доходностей
+```{r}
+matplot(rates, type='l', lty=1, col=2:12, main='Rates')
+```
+
+## Применение к доходностям метода главных компонент
+```{r}
+pca <- prcomp(rates, scale=TRUE)
+summary(pca)
+```
+
+## График стандартных отклоненией
+```{r}
+barplot(pca$sdev, main='Standard deviation explained by the principal components', col='blue')   
+```
+
+## График важности каждой главной компоненты
+```{r}
+ss <- summary(pca)
+barplot(ss$importance[2,], main='Importance of Factors.', col='blue')
+```
+
+## График накопленной меры информативности
+```{r}
+ss <- summary(pca)
+his <- ss$importance[3,]
+his[4:11]<- NA
+r <- as.matrix(cbind(ss$importance[3,], his))
+
+mp <- matplot(1:11, r, type='h', lty=1, lwd=10, main='Cumulative proportion.', col=c('blue','red'))
+abline(h=0.8, col='black')
+```
+
+## Определение, сколько главных факторов объясняют более 95% дисперсии
+```{r}
+summary(pca)
+```
+Одна (первая) главная компонента объясняет более 95% дисперсии
+
+## Главные факторы Shift, Twist, ButterFly
+### Графики нагрузок Shift, Twist, ButterFly
+```{r}
+tot <- ss$importance[2,]
+rownames(ss$rotation)
+```
+```{r}
+matplot(cbind(ss$rotation[,1], ss$rotation[,2], ss$rotation[,3]), type='b', pch=21, lwd=2,
+    col=c('blue', 'green', 'magenta'), main='Shift, Twist, Butterfly', ylab='loadings', xlab='maturity', lty=1)
+legend('bottomleft', c('Shift', 'Twist', 'Butterfly'), lty=c(1, 1, 1), lwd=2, col=c('blue', 'green', 'magenta'))
+```
+
+### Графики факторов Shift, Twist, ButterFly
+```{r}
+scores <- function(ldata, pca, number)
+{
+  cdata <- ldata
+  m <- dim(ldata)[2]
+  for (i in 1:m)
+    cdata[,i] <- ldata[,i] - pca$center[i]
+  loads <- pca$rotation[,1:number]
+  cdata <- as.matrix(cdata)
+  f <- cdata %*% loads
+  return (f)
+}
+```
+```{r}
+number <- 3
+fscores <- scores(rates.xts, ss, number)
+matplot(fscores, type='l', lty=1, col=1:number, main='Factor Scores')
+legend('topleft', c('shift', 'twist', 'butterfly'), col=1:number, lty=1)
+abline(h=0)
+```
+
+## Восстановление по факторам доходностей для последнего дня и сравнение оригинальных и восстановленных доходностей последнего дня
+```{r}
+restoreData<- function(fscores, loadings, center)
+{
+  npca <- dim(fscores)[2]
+  myeigen <- t(loadings[,1:npca])
+  rest <- fscores %*%myeigen
+  m <- length(center)
+  if (m == dim(rest)[2])
+  {
+    for (i in 1:m)
+    rest[,i] <- rest[,i]+center[i]
+  }
+  return(rest)
+}
+```
+```{r}
+rest <- restoreData(fscores, ss$rotation, ss$center)
+ndays <- dim(fscores)[1]
+head(rest)
+```
+```{r}
+s <- unlist(rates.xts[ndays,])
+s <- as.matrix(s, ncol=1)
+s <- t(s)
+rr <- as.matrix(rest[ndays,], ncol=1)
+title <- paste('Restored rates.', ' Date =', lastdate)
+matplot(cbind(rr, s), type='b', pch=21, lwd=2, main=title, col=c('blue', 'green'), lty=1)
+legend('bottomleft', c('restored', 'original rates'), lty=1, lwd=2, col=c('blue', 'green'))
+```
+
+## Вычисление цены портфеля из облигаций в количестве (15,15,15,200,15,20,20,10,10,10,10) со сроками до окончания 1 Mo, 2 Mo, 3 Mo, 6 Mo, 1 Yr, 2 Yr, 3 Yr, 5 Yr, 7 Yr, 10 Yr, 20 Yr, если каждая облигация имеет купон 3% и выплачивает купонный доход 2 раза в год. Для последнего дня заданного года по оригинальным рейтам и восстановленным по shift, twist и butterfly.
+```{r}
+totalPrice<- function(yield)
+{
+  par <- 100
+  coupon <- 0.03
+  tau <- c(1/12, 1/6, 1/4, 1/2, 1, 2, 3, 5, 7, 10, 20)
+  m <- 2
+  
+  tot = 0
+  w <- c(15, 15, 15, 200, 15, 20, 20, 10, 10, 10, 10)
+  for(i in 1:11){
+    tot = tot + w[i]*bond.price(par, coupon, tau[i], yield[i], m)
+  }
+  return(tot)
+}
+```
+```{r}
+lastdate
+```
+
+### По оригинальным рейтам
+```{r}
+totalPrice(as.vector(rates.xts[lastdate, ]))
+```
+
+### По восстановленным рейтам
+```{r}
+totalPrice(as.vector(rest['2023-03-30', ]))
+```
+
+### Вычисление изменения фактора Shift между 5/3/23 и 12/3/23, когда случился банковский кризис в США.
+```{r}
+days <- c('2023-03-06', '2023-03-07', '2023-03-08', '2023-03-09', '2023-03-10')
+fscores[days, 1] 
+```
+
+```{r}
+matplot(fscores[days, 1], type='l', lty=1, main='Shift between 5/3/23 and 12/3/23')
+```
+
+### Измение портфеля при этом
+```{r}
+price = c()
+for (d in days){
+  price = append(price, totalPrice(as.vector(rates.xts[as.Date(d), ])))
+}
+price
+```
+
+```{r}
+matplot(price, type='l', lty=1, main='Price of portfolio between 3/5/23 and 3/12/23')
+```

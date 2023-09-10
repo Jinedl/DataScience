@@ -1,0 +1,189 @@
+---
+title: "Task1"
+author: "Osipov Denis"
+date: "2023-02-26"
+output: html_document
+---
+
+# Проверка статистических гипотез
+
+```{r, message=FALSE}
+library(reticulate)
+path_to_python <- "/home/jinedl/prak/sem6/sem6/bin/python"
+use_python(path_to_python)
+```
+
+## Загрузка данных
+
+Вариант 15 - BBY Best Buy Consumer Discretionary
+Получим данные цен закрытия своего варианта
+```{python}
+import pandas as pd
+import yfinance as yf
+import time
+```
+```{python}
+start_day = '2022-01-01'
+```
+```{python}
+def get_One_Asset(company,start_day):
+    df = pd.DataFrame()
+    returns = yf.Ticker(company)
+    data = returns.history(period="1y",start=start_day)
+    df.index=data.index
+    df[company]=data.Close
+    return df
+```
+```{python}
+company ='BBY'
+asset = get_One_Asset(company,start_day)
+asset.head()
+```
+```{python}
+filename = 'BBY.csv'
+asset.to_csv(filename, index=True)
+```
+```{r}
+Data <- read.csv("BBY.csv",sep=",")
+ndates <- as.Date(Data$Date) 
+```
+```{r}
+matplot(ndates, Data$BBY, type="b", pch=20, col='blue', main="BBY")
+```
+
+## Доходности
+
+Вычислим доходностям по формуле
+$r_t=S_t/S_{t−1}−1$
+Доходности сохраним в переменную rates
+```{r}
+nbby <- length(Data$BBY)
+rates <- Data$BBY[2:nbby]/Data$BBY[1:(nbby-1)]-1
+matplot(ndates[2:nbby], rates, type="b", pch=20, col='blue', main = "BBY rates")
+```
+
+## Гипотеза случайности
+
+Проверим гипотезу случайности для доходностей пятью разными тестами
+```{r, message=FALSE}
+library(randtests)
+```
+```{r}
+rank.test(rates)
+```
+```{r}
+bartels.rank.test(rates)
+```
+```{r}
+cox.stuart.test(rates)
+```
+```{r}
+runs.test(rates)
+```
+```{r}
+turning.point.test(rates)
+```
+Для наших доходностей пять разных тестов единогласно не отвергают гипотезу случайности 
+
+## Гипотеза однородности
+
+Проверим гипотезу однородности двумя тестами для первой и второй половины данных
+```{r}
+(border <- length(rates)%/%2)
+
+sample1 <- rates[1:border]
+sample2 <- rates[(border+1):(2*border)]
+```
+
+```{r}
+wilcox.test(sample1, sample2, paired=T)
+```
+```{r}
+ks.test(sample1, sample2)
+```
+Для наших доходностей два разных теста единогласно не отвергают гипотезу однородности
+
+## Гипотеза о распределении
+
+Построим гистограмму, чтобы предположить тип распределения для доходностей
+```{r}
+h <- hist(rates, col="blue", nclass=20)
+```
+
+По гистограмме предположим, что доходности распределены нормально
+
+Разделим случайно выборку на две части - тренировочную (70%) и тестовую (30%)
+```{r}
+set.seed(1)
+d <- sample(c(TRUE, FALSE), length(rates), replace=TRUE, prob=c(0.7, 0.3))
+
+train <- rates[d]
+test <- rates[!d]
+```
+
+По тренировочной выборке предположим параметры распределения
+```{r, message=FALSE}
+library(MASS)
+```
+```{r}
+fitting_normal <- fitdistr(train, "normal")
+(mean <- fitting_normal$estimate[1])
+(sd <- fitting_normal$estimate[2])
+```
+
+
+На тестовой выборке проверим адекватность предположений
+
+
+#### Метод максимального правдоподобия
+
+Методом максимального правдоподобия оцениv параметры предполагаемого распределения по тестовой части выборки
+```{r, message=FALSE}
+library(fitdistrplus)
+```
+```{r}
+(mean)
+(sd)
+fitdist(test, "norm", start=list(mean=-0.0002944483, sd=0.02336449))
+```
+
+#### Критерий Колмогорова-Смирнова
+
+Проверим критерий Колмогорова-Смирнова по тестовой части выборки
+```{r}
+ks.test(test, 'pnorm', mean, sd)
+```
+Не отвергаем гипотезу о параметрах распределения
+
+#### Критерий Хи-квадрат Пирсона
+
+##### Простая гипотеза
+Проверим критерий Хи-квадрат Пирсона по тестовой части выборки
+```{r}
+n <- length(test)
+h <- hist(test, plot=FALSE)
+E <- h$breaks
+dens <- h$density*n # Число попаданий в каждый отрезок Ei
+```
+```{r, message=FALSE}
+library(zoo)
+```
+```{r}
+breaks <- pnorm(E, mean, sd)
+null_probs <- rollapply(breaks, 2, function(x) x[2]-x[1]) # Теоретическая вероятность попадания в отрезок Ei
+sum(null_probs)
+```
+```{r}
+chisq.test(table(dens, null_probs), rescale.p=TRUE)
+```
+Не отвергаем гипотезу о параметрах распределения
+
+##### Сложная гипотеза
+Проверим нормальность данных
+```{r, message=FALSE}
+library(nortest)
+```
+```{r}
+pearson.test(rates)
+```
+Не отвергаем гипотезу о нормальном распределении данных

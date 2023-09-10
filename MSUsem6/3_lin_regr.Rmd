@@ -1,0 +1,121 @@
+---
+title: "Task3"
+author: "Osipov Denis"
+date: "2023-03-15"
+output: html_document
+---
+
+# Линейная регрессия
+
+```{r, message=FALSE}
+library(reticulate)
+path_to_python <- "/home/jinedl/prak/sem6/sem6/bin/python"
+use_python(path_to_python)
+library(LambertW)
+```
+```{python}
+import numpy as np
+import pandas as pd
+```
+
+
+## Подготовка данных
+
+Вариант 5
+
+```{python}
+data = pd.read_csv('AUDUSD.csv')
+data = data[['<DATE>', '<CLOSE>']].copy()
+data.columns = ['DATE', 'AUDUSD']
+data
+```
+```{python}
+assets = ['SANDP-500', 'comex.GC', 'ICE.BRN', 'CHFUSD', 'EURUSD', 'NYMEX.PL', 'USDNOK']
+for a in assets:
+  asset = pd.read_csv(a+'.csv')
+  ticker = asset.loc[1, '<TICKER>']
+  asset = asset[['<DATE>', '<CLOSE>']].copy()
+  asset.columns = ['DATE', ticker]
+  data = data.merge(asset, how='inner', on='DATE')
+data
+```
+```{python}
+data = np.log(np.array(data.drop('DATE', axis=1)))
+data = data[1:] - data[:-1]
+data = pd.DataFrame(data, columns=['AUDUSD']+assets)
+data
+```
+```{python}
+filename = 'data.csv'
+data.to_csv(filename, index=False)
+```
+```{r}
+Data <- read.csv("data.csv",sep=",")
+head(Data)
+```
+
+## Регрессионная модель
+
+Построим регрессионую модель от всех предикторов с константой
+```{r}
+regr <- lm(Data$AUDUSD ~ Data$SANDP.500 + Data$comex.GC + Data$ICE.BRN + Data$CHFUSD + Data$EURUSD + Data$NYMEX + Data$USDNOK, data=Data)
+summary(regr)
+```
+
+- Константа - незначима, т.к. не отвергаем гипотезу о её незначимости (p-value > 0.05)
+- SANDP.500 - значимый предиктор, т.к. отвергаем гипотезу о его незначимости (p-value < 0.05)
+- comex.GC - значимый предиктор, т.к. отвергаем гипотезу о его незначимости (p-value < 0.05)
+- ICE.BRN - незначимый предиктор, т.к. не отвергаем гипотезу о его незначимости (p-value > 0.05)
+- CHFUSD - незначимый предиктор, т.к. не отвергаем гипотезу о его незначимости (p-value > 0.05)
+- EURUSD - значимый предиктор, т.к. отвергаем гипотезу о его незначимости (p-value < 0.05)
+- NYMEX - значимый предиктор, т.к. отвергаем гипотезу о его незначимости (p-value < 0.05)
+- USDNOK - значимый предиктор, т.к. отвергаем гипотезу о его незначимости (p-value < 0.05)
+
+Модель не является невырожденной, т.к. у неё есть значимые предикторы.
+Также мы отвергаем гипотезу об отсутствии связи между результатом и нашей конкретной моделью (у F-statistic p-value < 0.05)
+
+Переоценим регрессионую модель только для значимых переменных
+```{r}
+regr <- lm(Data$AUDUSD ~ Data$SANDP.500 + Data$comex.GC + Data$EURUSD + Data$NYMEX + Data$USDNOK - 1, data=Data)
+summary(regr)
+```
+
+## Исследовать остатки на некоррелированность и по возможности исследовать их распределение
+
+#### Исследование на распределение
+
+Построим гистограмму остатков
+```{r}
+hist(regr$residuals, col = "blue")
+```
+
+Стандартизируем остатки
+```{r}
+hist(rstudent(regr), col = "blue")
+```
+Глядя на гистограммы, можно предположить, что остатки распределены по стьюденту.
+
+
+Построим Q-Q Plot остатков
+```{r}
+qqnorm(rstudent(regr), col="red")
+```
+
+Судя по хвостам, остатки распределены по стьюденту.
+
+Применим тест Колмогорова-Смирнова для проверки распределения остатков (распределены ли они по стьюденту?)
+```{r}
+ks_test_t(rstudent(regr))
+```
+Остатки распределены по Стьюденту
+
+#### Исследование на коррелированность
+
+Найдём ACF остатков
+```{r}
+acf(rstudent(regr))
+```
+
+Остатки коррелированы
+
+В этом случае оценка максимального правдоподобия не совпадает с оценкой наименьших квадратов. 

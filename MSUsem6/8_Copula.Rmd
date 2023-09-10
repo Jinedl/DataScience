@@ -1,0 +1,190 @@
+---
+title: "Task8"
+author: "Osipov Denis"
+date: "2023-04-24"
+output: html_document
+---
+
+# Копула
+
+```{r, message=FALSE}
+library(copula)
+```
+
+```{r}
+data <- readRDS('var_15.rds')
+names(data)
+```
+
+## 1. График predictor vs output
+```{r}
+plot(data$predictor,data$output,main = 'predictor vs output', col = 'green',pch = 20,xlab = 'predictor', ylab = 'output')
+```
+
+## 2. График эмпирической копулы, построенной по определению и с помощью метода pobs()
+```{r}
+rank.predictor <- rank(data$predictor)/length(data$predictor)
+rank.output <- rank(data$output)/length(data$output)
+plot(rank.predictor, rank.output,  pch = 21,main ="Empirical Copula",col = "blue")
+```
+
+```{r}
+pred_out <- cbind(data$predictor, data$output)
+e_cop <-pobs(pred_out)
+plot(e_cop[,1],e_cop[,2],pch = 21,main ="pobs() ",col = "blue")
+```
+
+## 3. Создание четырёх объектов копул c произвольным значением параметра и размерности 2
+```{r}
+#Normal copula
+normal_copula<-normalCopula(param=0,dim=2)
+#Student copula
+t_copula <-ellipCopula(family = "t",param = 0,dim = 2)
+#Frank copula
+Frank_copula<-frankCopula(param=5,dim=2)
+#Clayton
+Clayton_copula<-claytonCopula(param=5,dim=2)
+```
+
+## 4. Оценка по эмпирической копуле всех четырёх копул, оценка параметров
+```{r}
+Gaussian.Copula.fit<-fitCopula(normal_copula, 
+                               e_cop, 
+                               method = "ml",
+                               #optim.method = "BFGS", 
+                               optim.control = list(maxit=1000))
+parameters <- Gaussian.Copula.fit@copula@parameters
+parameters
+```
+
+```{r}
+t.Copula.fit<-fitCopula(t_copula, 
+                               e_cop, 
+                               method = "ml",
+                               #optim.method = "BFGS", 
+                               optim.control = list(maxit=1000))
+t_parameters <- t.Copula.fit@copula@parameters
+t_parameters
+```
+
+```{r}
+Frank.Copula.fit<-fitCopula(Frank_copula, 
+                               e_cop, 
+                               method = "ml",
+                               #optim.method = "BFGS", 
+                               optim.control = list(maxit=1000))
+parameters <- Frank.Copula.fit@copula@parameters
+parameters
+```
+
+```{r}
+Clayton.Copula.fit<-fitCopula(Clayton_copula, 
+                               e_cop, 
+                               method = "ml",
+                               #optim.method = "BFGS", 
+                               optim.control = list(maxit=1000))
+parameters <- Clayton.Copula.fit@copula@parameters
+parameters
+```
+
+```{r}
+t.Copula.fit@loglik
+```
+
+```{r}
+Gaussian.Copula.fit@loglik
+```
+
+```{r}
+Frank.Copula.fit@loglik
+```
+
+```{r}
+Clayton.Copula.fit@loglik
+```
+
+## 5. Выбор наиболее адекватного типа копулы к данным
+### 5.1 Параметры выбранной копулы сохраняем в переменную best_parameters
+```{r}
+best_parameters <- t_parameters
+```
+
+## 7. Переход к копуле согласно частным распределениям predictor и output
+```{r}
+data$predictor_DistrType
+```
+
+```{r}
+data$predictor_DistrParameters
+```
+
+```{r}
+data$output_DistrType
+```
+
+```{r}
+data$output_DistrParameters
+```
+
+Переходим к копуле согласно частных распределений
+```{r}
+predictor.copula <- plogis(data$predictor, location=data$predictor_DistrParameters[1], scale=data$predictor_DistrParameters[2])
+output.copula <- pexp(data$output, rate=data$output_DistrParameters[2])
+```
+
+## 8. Построение копулы согласно частным распределениям
+```{r}
+plot(predictor.copula ,output.copula, main = 'predictor vs output. Marginal Distribution Copula', col = 'green',pch = 20,xlab = 'predictor', ylab = 'output')
+```
+
+## 9. Вычисление квантиля для уровня 95% для заданных частных распределений
+```{r}
+(best_parameters[1])
+best_parameters[2]
+```
+
+```{r}
+copula <- cbind(predictor.copula ,output.copula)
+alpha <- 0.95
+theta <- best_parameters[1]
+df <- best_parameters[2]
+q <- pnorm(qnorm(alpha) *sqrt(1-theta*theta)  + theta* qnorm(copula[,1]))
+q1 <- pt(qt(alpha, df+1)*sqrt((df+(qt(copula[,1], df))*(qt(copula[,1], df)))*(1-theta*theta)/(df+1))+theta*qt(copula[,1], df), df)
+q2 <- pt(qt(alpha, df+1)*sqrt((df+(qt(copula[,2], df))*(qt(copula[,2], df)))*(1-theta*theta)/(df+1))+theta*qt(copula[,2], df), df)
+```
+
+## 10. Определение аномальных пар переменных
+```{r}
+(anomalindex <- which(copula[,2]>q1))
+```
+
+```{r}
+plot(copula[,1],copula[,2],pch =20,col = "blue",main = "quatile level 95%")
+points(copula[,1],q1,col = "green",pch = 20)
+points(copula[anomalindex,1],copula[anomalindex,2],col = "magenta",pch = 20)
+```
+
+## 11. Нахождение аномальных переменных в исходных pedictor и output
+```{r}
+anomal_predictor <- data$predictor[anomalindex]
+anomal_output    <- data$output[anomalindex]
+```
+
+
+```{r}
+variant <- 15
+copulaName <- 'student'
+```
+
+
+```{r}
+myResult <- list(variant = 15,
+                 copulaName = copulaName,
+                 predictor.copula = predictor.copula,
+                 output.copula = output.copula,  
+                 best_parameters = best_parameters,
+                 anomal_predictor= anomal_predictor,
+                 anomal_output= anomal_output)
+
+saveRDS(myResult,"result.rds")
+```

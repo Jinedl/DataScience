@@ -1,0 +1,133 @@
+---
+title: "Task2"
+author: "Osipov Denis"
+date: "2023-03-05"
+output: html_document
+---
+
+# Финансовые риски
+
+$R_f$
+```{r}
+Rf <- 0.04 # Безрисковая ставка доходности
+```
+
+Получим данные
+```{r}
+asset <- read.table("Asset.csv", header=TRUE, sep=",", row.names=1)
+head(asset)
+```
+```{r}
+imoex <- read.table("IMOEX.csv", header=TRUE, sep=",", row.names=1)
+head(imoex)
+```
+```{r, message=FALSE}
+library(PerformanceAnalytics)
+```
+```{r}
+colnames(asset) <- c("GMKN")
+plot(asset$GMKN, type="b", main="GMKN daily", pch=21, col="green", lwd=2, xlab='data', ylab="price")
+```
+```{r}
+colnames(imoex) <- c("IMOEX")
+plot(imoex$IMOEX, type="b", main="Index MOEX daily", pch=21, col="blue", lwd=2, xlab="data", ylab="price")
+```
+```{r}
+len <- dim(asset)[1]
+r1 <- diff(log(asset$GMKN))
+r2 <- diff(log(imoex$IMOEX))
+
+rates <- cbind(r1, r2)
+colnames(rates) <- c("GMKN", "IMOEX")
+rownames(rates) <- as.character(as.Date(rownames(asset)[2:len], "%d/%m/%Y"))
+
+dif <- diff(asset$GMKN)
+mean_dif <- mean(dif)
+vol <- sd(dif)
+```
+
+
+## Beta & Alpha
+
+$E(R) = R_f + \beta * E(R - R_f) + \alpha,\ R - доходность\ актива$
+
+Вычислим коэффициент бета
+```{r}
+(beta <- CAPM.beta(rates[, "GMKN"], rates[, "IMOEX"]))
+```
+
+Вычислим коэффициент альфа
+```{r}
+(Alpha <- CAPM.alpha(rates[, "GMKN"], rates[, "IMOEX"], Rf=Rf))
+```
+
+## Sharp
+
+$S = E(R - R_f) / \sigma(R - R_f)$
+
+Вычислим коэффициент Шарпа
+```{r}
+(sharp <- SharpeRatio(rates[, "GMKN"], Rf=Rf, p=0.95, FUN=c("StdDev")))
+```
+
+## VAR
+
+$VAR_{\alpha} = q_{\alpha}(X),\ X - потери\ за\ N\ дней$
+
+### Normal
+
+Распределение доходностей
+```{r}
+hist(dif, col="green", nclass=20)
+```
+
+Рассчитаем VAR, предполагая, что доходности распределены нормально
+```{r}
+(var_gauss <- qnorm(1-0.95, mean=mean_dif, sd=1)*vol)
+```
+
+### Historic
+
+Рассчитаем VAR по историческим данным
+```{r}
+(var_hist <- -1*quantile(dif, .05))
+```
+
+## Shortfall
+
+$Shortfall_{\alpha} = E(X|X>q_{\alpha})$
+
+### Normal
+
+Распределение доходностей
+```{r}
+hist(rates[, 1], col="green", nclass=20)
+```
+
+Рассчитаем Shortfall, предполагая, что доходности распределены нормально
+```{r}
+(shortfall_gauss <- ES(rates[, 1], p=.95, method="gaussian"))
+```
+
+### Historic
+
+Рассчитаем VAR по историческим данным
+```{r}
+(shortfall_hist <- ES(rates[, 1], p=.95, method="historical"))
+```
+
+## Result
+
+```{r}
+res <- list(
+  beta = beta,
+    alpha = Alpha,
+    sharp=sharp[1],
+    var_hist = var_hist,
+    var_gauss= var_gauss,
+    shortfall_gauss=shortfall_gauss,
+    shortfall_hist=shortfall_hist
+)
+res
+```
+

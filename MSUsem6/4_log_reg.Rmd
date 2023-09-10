@@ -1,0 +1,108 @@
+---
+title: "Task 4"
+author: "Osipov Denis"
+date: "2023-03-26"
+output: html_document
+---
+
+# Логистическая регрессия
+
+## Подготовка данных
+
+Вариант 15
+
+```{r}
+data <- read.csv("./var_15_train.csv")
+head(data)
+```
+
+```{r}
+d = sort(sample(nrow(data), nrow(data)*.6))
+head(d)
+```
+
+```{r}
+train <- data[d,]
+test <- data[-d,]
+```
+
+## Обучение модели
+
+```{r}
+train <- subset(train)
+m <- glm(train$output~., data=train, family=binomial())
+summary(m)
+```
+```{r, warning=FALSE}
+m <- step(m)
+```
+```{r}
+m <- step(m)
+```
+```{r}
+summary(m)
+```
+
+
+```{r, message=FALSE}
+library(ROCR)
+```
+
+```{r}
+test$score <- predict(m, type='response', test)
+pred <- prediction(test$score, test$output)
+t1 <- cbind(test$output, test$score)
+matplot(t1, col = c("blue","magenta"),pch= "*", type = "p")
+```
+
+Так как результаты были численно подогнаны к 0 или 1, то границу вероятности для принятия решения искать смысла нет, но всё же посмотрим на зависимость TPR и FPR
+
+```{r}
+perf <- performance(pred, "tpr", "fpr")
+plot(perf)
+```
+
+```{r, message=FALSE}
+library(caret)
+```
+
+```{r}
+test$pred <- rep(0, length(test$score))
+test$pred[which(test$score == 1)] <- 1
+```
+```{r}
+test$output <- as.factor(test$output)
+test$pred <- as.factor(test$pred)
+cf <- confusionMatrix(data=test$pred, reference = test$output)
+cf$table
+```
+```{r}
+cf$overall
+```
+
+
+### Решение
+
+```{r}
+data2 <- read.csv("./var_15_test.csv")
+head(data2)
+```
+
+```{r}
+data2$score <- predict(m, type='response', data2)
+```
+```{r}
+ans <- data.frame(y=1:100)
+ans$x <- rep(0, length(data2$score))
+ans$x[which(data2$score == 1)] <- 1
+```
+```{r}
+ans
+```
+
+```{r}
+write.csv(ans, 'ans15.csv')
+```
+
+
+

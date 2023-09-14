@@ -7,5 +7,5 @@
 - Градиентный бустинг
 
 ### Основные технологии
-- Python (numpy, pandas, sklearn)
+- Python (numpy, pandas, matplotlib, seaborn, sklearn)
 - Jupyter notebook
